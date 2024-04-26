@@ -384,21 +384,31 @@ function get_stations_df_v9(fname::String, num_chunks::Int)
 	return df_output
 end
 
+# ╔═╡ 626d097c-ce6e-4162-8c8c-e08fdca9a6da
+function chunk_to_file(chunk)
+	return chunk
+end		
+
 # ╔═╡ fab88fa3-5211-44b5-8eff-203335123841
-chunks = CSV.Chunks("measurements_test_10k.txt"; 
+@time chunks = CSV.Chunks("measurements.txt"; 
 	                    delim = ';',
 	                    header = ["station", "temp"],
 	                    types = Dict("temp" => Float32),
 	                    strict = true,
-	                    ntasks = 8,
+	                    ntasks = 96,
 		                pool = true
-	                    )
+	                    );
 
 # ╔═╡ fe275494-b2bf-4f43-8346-53d283ea01b6
-A = collect(chunks);
+#@time A = chunk_to_file(chunks);
+# 196.962096 seconds (1.00 G allocations: 72.806 GiB, 12.08% gc time, 0.00% compilation time) (threads = 1)
 
-# ╔═╡ 88ff15ee-0c10-4044-9f96-e1a8e9ae9656
-typeof(A)
+# ╔═╡ 03e90404-7e3f-458a-a041-13ae08a7bb70
+@time B = ThreadsX.map(x -> chunk_to_file(x), chunks, basesize = 2)
+
+# ╔═╡ aa01fed9-309f-4129-9e25-9bbfb94323c4
+Base.summarysize(B)
+# 8042500929
 
 # ╔═╡ 62e31e63-5239-4ebb-a4c1-d3d25731a765
 #@btime get_stations_df_v7("measurements_test_10k.txt", 192);
@@ -1310,9 +1320,11 @@ version = "5.8.0+1"
 # ╟─c2946753-d770-45c9-b5fe-96a992c8ebd8
 # ╟─33d75bbe-04f0-433e-a9cd-f7d7fee92e5f
 # ╟─2ce9cff2-f742-44e2-82e0-7d1f1bc0e747
+# ╟─626d097c-ce6e-4162-8c8c-e08fdca9a6da
 # ╠═fab88fa3-5211-44b5-8eff-203335123841
 # ╠═fe275494-b2bf-4f43-8346-53d283ea01b6
-# ╠═88ff15ee-0c10-4044-9f96-e1a8e9ae9656
+# ╠═03e90404-7e3f-458a-a041-13ae08a7bb70
+# ╠═aa01fed9-309f-4129-9e25-9bbfb94323c4
 # ╠═62e31e63-5239-4ebb-a4c1-d3d25731a765
 # ╠═b52e7336-5cbc-43a2-b6b7-f253bb4eb85c
 # ╠═b87395ee-6c9a-4b68-b17a-5e06cd13b4c3
