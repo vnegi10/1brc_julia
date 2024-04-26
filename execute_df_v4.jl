@@ -1,4 +1,4 @@
-using DataFrames, CSV
+using DataFrames, CSV, ProgressMeter, Statistics
 
 include("print_output_v4.jl")
 
@@ -6,14 +6,21 @@ function get_stations_df_v4(fname::String, num_chunks::Int)
 	
 	df_all_group = DataFrame()
 
-	for chunk in CSV.Chunks(fname; 
-	                        delim = ';',
-	                        header = ["station", "temp"],
-	                        types = Dict("temp" => Float32),
-	                        strict = true,
-	                        ntasks = num_chunks,
-		                    pool = true
-	                        )
+    chunks = CSV.Chunks(fname;
+                        delim = ';',
+                        header = ["station", "temp"],
+                        types = Dict("temp" => Float32),
+                        strict = true,
+                        ntasks = num_chunks,
+                        pool = true
+                        )
+
+    p = Progress(length(chunks); dt = 0.5,
+	                             barglyphs = BarGlyphs("[=> ]"),
+	                             barlen = 50,
+	                             color = :yellow)
+
+	for chunk in chunks
 
 		df_chunk = chunk |> DataFrame
 
@@ -25,9 +32,12 @@ function get_stations_df_v4(fname::String, num_chunks::Int)
 		                  )
 
 		# Vertically concatenate all DataFrames
-		df_all_group = vcat(df_all_group, df_group)		
+		df_all_group = vcat(df_all_group, df_group)
+        next!(p)
 		
 	end
+
+    finish!(p)
 
 	df_output = combine(groupby(df_all_group, :station, sort = true),
                             :temp_minimum => minimum => :t_min,
