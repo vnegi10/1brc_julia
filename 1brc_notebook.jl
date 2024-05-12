@@ -112,6 +112,227 @@ function get_stations_dict_v3(fname::String)
 	return stations
 end
 
+# ╔═╡ 6fb08be8-b7b2-4dae-8234-26501c287d2d
+md"
+###### Use mmap to split file into chunks
+"
+
+# ╔═╡ 4a87591f-52fb-47da-a18e-1364aa654b8e
+function get_chunks(fname::String, num_chunks::Int64)
+	
+	# Use memory mapping to read large file
+	fopen = open(fname, "r")
+	fmmap = Mmap.mmap(fopen)
+
+	# Find suitable range for reading each chunk
+	i_max = length(fmmap)
+	chunk_size = round(Int, (i_max / num_chunks))
+	i_start = 1
+    i_end = chunk_size
+
+	all_start, all_end = [Int64[] for i = 1:2]
+	all_chunks = Vector{UInt8}[]
+
+	# Find indexes for start and end of each chunk	
+	while i_end ≤ i_max
+
+		# Exit after processing last chunk
+		if i_end == i_max
+			break
+		end
+		
+		# Check if we end at byte representation of new-line character
+	    while fmmap[i_end] != 0x0a
+	    	i_end += 1
+	    end		
+
+		push!(all_start, i_start)
+		push!(all_end, i_end)
+
+		# Move to next chunk
+		i_start = i_end + 1
+		i_end = i_start + chunk_size
+
+		if i_end > i_max
+			i_end = i_max
+			push!(all_start, i_start)
+		    push!(all_end, i_end)
+		end
+
+	end
+
+	@assert length(all_start) == length(all_end) "Length of index vectors doesn't match"
+
+	for i in eachindex(all_start)
+		push!(all_chunks, fmmap[all_start[i]:all_end[i]])
+	end
+
+	close(fopen)
+
+	return all_chunks	
+	
+end
+
+# ╔═╡ 937393a0-b653-4fb0-b65b-02810225fbf0
+function process_chunk_v1(chunk)
+	stations = Dict{String, Vector{Float32}}()
+	io_stream = IOBuffer(chunk)
+	
+	# Use of eachline requires Julia 1.8	
+	for line in eachline(io_stream)
+		line_parts = split(line, ";")
+		station, temp = line_parts[1], parse(Float32, line_parts[2])
+		if haskey(stations, station)
+			push!(stations[station], temp)
+		else
+			stations[station] = [temp]
+		end	
+	end
+
+	return stations
+end
+
+# ╔═╡ 2b4b1cb3-8b44-4963-813e-ca59b84cbccc
+function process_chunk_v2(chunk)
+	stations = Dict{String, Vector{Float32}}()
+	io_stream = IOBuffer(chunk)
+	
+	# Use of eachline requires Julia 1.8	
+	for line in eachline(io_stream)
+		line_parts = split(line, ";")
+		station, temp = line_parts[1], parse(Float32, line_parts[2])
+		if haskey(stations, station)
+			# Find min and max
+			if temp ≤ stations[station][1]
+				# Replace when a new minimum is found
+				stations[station][1] = temp
+			else
+				# Replace when a new maximum is found
+				if temp ≥ stations[station][3]
+					stations[station][3] = temp
+				end
+			end		
+
+			# Mean
+			stations[station][2] += temp
+			stations[station][4] += 1.0			
+			
+		else
+			# min, sum, max, counter
+			stations[station] = [temp, temp, temp, 1.0]
+		end	
+	end
+
+	return stations
+end
+
+# ╔═╡ 80e62ba5-98b1-4d24-87ae-c032268b215f
+function combine_chunks_v1(all_stations)
+
+	list_stations = Vector{Vector{String}}()
+
+	for stations in all_stations
+		list_station = collect(keys(stations))
+		push!(list_stations, list_station)
+	end
+
+	# Concatenate into a single vector and remove duplicates
+	list_stations = vcat(list_stations...)
+	list_stations = unique(list_stations)
+
+	combined_stations = Dict{String, Vector{Float32}}()
+
+	# Collect data for every station
+	for station in list_stations
+		temps = Vector{Vector{Float32}}()
+		
+		for stations in all_stations
+			if haskey(stations, station)
+				push!(temps, stations[station])
+			end
+		end
+
+		# Concatenate into a single vector of temperatures
+		temps = vcat(temps...)
+		
+		combined_stations[station] = [round(minimum(temps); digits = 1), 
+		                              round(mean(temps); digits = 1), 
+		                              round(maximum(temps); digits = 1)]
+
+	end
+
+	return combined_stations	
+
+end
+
+# ╔═╡ 3f966611-e845-4817-bee5-e0a07a66b68f
+function combine_chunks_v2(all_stations)
+
+	list_stations = Vector{Vector{String}}()
+
+	for stations in all_stations
+		list_station = collect(keys(stations))
+		push!(list_stations, list_station)
+	end
+
+	# Concatenate into a single vector and remove duplicates
+	list_stations = vcat(list_stations...)
+	list_stations = unique(list_stations)
+
+	combined_stations = Dict{String, Vector{Float32}}()
+
+	# Collect data for every station
+	for station in list_stations
+		mins, sums, maxs, counters = [Float32[] for i = 1:4]
+		
+		for stations in all_stations
+			if haskey(stations, station)
+				push!(mins, stations[station][1])
+				push!(sums, stations[station][2])
+				push!(maxs, stations[station][3])
+				push!(counters, stations[station][4])
+			end
+		end
+
+		combined_stations[station] = [round(minimum(mins); digits = 1), 
+		                              round((sum(sums) / sum(counters));digits = 1), 
+		                              round(maximum(maxs); digits = 1)]
+
+	end
+
+	return combined_stations	
+
+end
+
+# ╔═╡ cd1b6b31-c014-4a7d-802e-27239624bbca
+function get_stations_dict_v4(fname::String, num_chunks::Int64)
+
+	all_chunks = get_chunks(fname, num_chunks)	
+	all_stations = [Dict{String, Vector{Float32}}() for _ in 1:num_chunks]
+
+	Threads.@threads for i in eachindex(all_chunks)		
+		all_stations[i] = process_chunk_v1(all_chunks[i])
+	end
+
+	return combine_chunks_v1(all_stations)
+end
+
+# ╔═╡ 00cb2ca7-b4e4-43a1-9f4d-df5e7e3e5fb8
+function get_stations_dict_v5(fname::String, num_chunks::Int64)
+
+	all_chunks = get_chunks(fname, num_chunks)	
+	all_stations = [Dict{String, Vector{Float32}}() for _ in 1:num_chunks]
+
+	Threads.@threads for i in eachindex(all_chunks)		
+		all_stations[i] = process_chunk_v2(all_chunks[i])
+	end
+
+	return combine_chunks_v2(all_stations)
+end
+
+# ╔═╡ 5824ee19-f87e-4150-b166-4c54c5089cf4
+get_stations_dict_v5("measurements_test_100k.txt", 12)
+
 # ╔═╡ 2497157a-b02e-4ad6-8795-598adc28ddb5
 function get_stations_df_v4(fname::String, num_chunks::Int)
 	
@@ -439,6 +660,9 @@ function get_stations_dict_v4(fname::String)
 	return stations
 end
 
+# ╔═╡ 7d51ac85-b660-4b1c-a914-973bd2b6b9f5
+get_stations_dict_v4("measurements_test_100k.txt", 12)
+
 # ╔═╡ 6a2c0725-1a55-4cf4-a2b1-b13866f99980
 function get_stations_df_v10(fname::String, num_chunks::Int64)
 	
@@ -748,9 +972,7 @@ md"
 b = @benchmarkable get_stations_df_v11("measurements.txt", 24, 24) samples = 10 seconds = 1200
 
 # ╔═╡ 17536c3e-cc38-47a3-bd27-972d9bb0729c
-run(b)
-
-
+#run(b)
 
 #= chunks = 24, threads = 12 
 BenchmarkTools.Trial: 10 samples with 1 evaluation.
@@ -770,7 +992,7 @@ md"
 "
 
 # ╔═╡ 94c4e745-8ed0-4a5d-a261-0f92d5a8be07
-@assert size(get_stations_df_v7("measurements_test_10k.txt", 4)) == size(get_stations_df_v11("measurements_test_10k.txt", 4, 1)) "Output df sizes do not match"
+#@assert size(get_stations_df_v7("measurements_test_10k.txt", 4)) == size(get_stations_df_v11("measurements_test_10k.txt", 4, 1)) "Output df sizes do not match"
 
 # ╔═╡ c875320f-8e07-4fb3-8a03-7eb3ba3cdcc8
 md"
@@ -793,6 +1015,9 @@ function calculate_output_v1(stations_dict::Dict)
 	return output
 
 end
+
+# ╔═╡ e1fc609f-5dc8-4cee-b0bf-48bb82d2d5b5
+calculate_output_v1(get_stations_dict_v1("measurements_test_100k.txt"))
 
 # ╔═╡ 3cd10b97-8c42-4d47-806f-bd2b957c9930
 function calculate_output_v2(all_temps)
@@ -821,6 +1046,23 @@ function calculate_output_v3(stations_dict::Dict)
 		output[station] = [round(minimum(temps); digits = 1), 
 		                   round(mean(temps); digits = 1), 
 		                   round(maximum(temps); digits = 1)]
+	end
+
+	return output
+
+end
+
+# ╔═╡ e2e800c9-8962-459d-a2a3-1117b1b882a1
+function calculate_output_v4(stations_dict::Dict)
+
+	output = Dict{String, Vector{Float64}}()
+	station_names = collect(keys(stations_dict))
+
+	for station in station_names
+		temps = stations_dict[station]
+		output[station] = [minimum(temps), 
+		                   mean(temps), 
+		                   maximum(temps)]
 	end
 
 	return output
@@ -912,8 +1154,37 @@ function execute_challenge_v1_1(fname::String)
 end
 
 # ╔═╡ 2f1afcf8-5827-4fb8-aef1-df2c6cc85a81
-# @time execute_challenge_v1_1("measurements.txt")
+#@time execute_challenge_v1_1("measurements_test_10k.txt")
 # 528.758262 seconds (3.00 G allocations: 303.735 GiB, 4.59% gc time)
+
+# ╔═╡ 75a14cd5-6679-4ff4-a834-3089d32d270d
+function execute_challenge_v1_2(fname::String, num_chunks::Int64)
+
+	get_stations_dict_v4(fname, num_chunks) |> print_output_v1
+
+end
+
+# ╔═╡ 86190ddd-b8bd-43c2-b30d-b33a51575768
+#@time execute_challenge_v1_2("measurements.txt", 96)
+# 153.618514 seconds (4.01 G allocations: 424.907 GiB, 46.21% gc time, 0.01% compilation time)
+
+# ╔═╡ d340807a-8f17-4e70-864f-b967745d5d5e
+function execute_challenge_v1_3(fname::String, num_chunks::Int64)
+
+	get_stations_dict_v5(fname, num_chunks) |> print_output_v1
+
+end
+
+# ╔═╡ fed0a921-d8ca-4208-91e8-4f4c6c3eb7d6
+#@time execute_challenge_v1_3("measurements.txt", 192)
+# 143.828589 seconds (4.00 G allocations: 410.822 GiB, 50.84% gc time) for chunks = 96
+# 139.639194 seconds (4.01 G allocations: 411.130 GiB, 48.85% gc time) for chunks = 192
+# 168.320329 seconds (4.01 G allocations: 411.130 GiB, 35.61% gc time) for chunks = 96 and threads = 6
+
+# ╔═╡ 66e9296b-77ba-417e-ac08-06c668af9472
+#= Sample output
+Aachen=-99.9/0.2/99.9, Aarschot=-99.9/-0.1/99.9, Aartselaar=-99.9/0.0/99.9, Aba=-99.9/-0.1/99.9, Abaetetuba=-99.9/-0.2/99.9, Abakan=-99.9/0.1/99.9, Abancay=-99.9/-0.2/99.9, Abdulino=-99.9/0.1/99.9, Abelardo Luz=-99.9/-0.1/99.9, Abeokuta=-99.9/0.2/99.9, Aberaman=-99.9/-0.4/99.9, Abertawe=-99.9/-0.0/99.9, Abertillery=-99.9/-0.1/99.9, Abhwar=-99.9/-0.0/99.9, Abingdon=-99.9/-0.2/99.9
+=#
 
 # ╔═╡ 63046959-e63c-425e-bc9e-487dcf2f9639
 function execute_challenge_v2(fname::String)
@@ -1581,6 +1852,17 @@ version = "5.8.0+1"
 # ╟─626bafd1-7b38-4bc3-867a-2714cff2fbf6
 # ╟─0a46b87b-364d-4807-bce9-feb3d89d1bfa
 # ╟─8eee43c2-fd05-4583-8f2d-717233973c23
+# ╟─6fb08be8-b7b2-4dae-8234-26501c287d2d
+# ╟─4a87591f-52fb-47da-a18e-1364aa654b8e
+# ╟─937393a0-b653-4fb0-b65b-02810225fbf0
+# ╟─2b4b1cb3-8b44-4963-813e-ca59b84cbccc
+# ╟─80e62ba5-98b1-4d24-87ae-c032268b215f
+# ╟─3f966611-e845-4817-bee5-e0a07a66b68f
+# ╟─cd1b6b31-c014-4a7d-802e-27239624bbca
+# ╟─00cb2ca7-b4e4-43a1-9f4d-df5e7e3e5fb8
+# ╠═7d51ac85-b660-4b1c-a914-973bd2b6b9f5
+# ╠═5824ee19-f87e-4150-b166-4c54c5089cf4
+# ╠═e1fc609f-5dc8-4cee-b0bf-48bb82d2d5b5
 # ╟─2497157a-b02e-4ad6-8795-598adc28ddb5
 # ╟─be339d68-fc78-4d2a-a5e0-628305f55a75
 # ╟─2ea501bc-743f-4b90-83af-fa56723d7025
@@ -1636,6 +1918,7 @@ version = "5.8.0+1"
 # ╟─c4b006ff-7d4e-4ed4-bdb3-6ac0c63d8b48
 # ╟─3cd10b97-8c42-4d47-806f-bd2b957c9930
 # ╟─52e8e916-d448-4767-9b9d-4dcee95a275a
+# ╟─e2e800c9-8962-459d-a2a3-1117b1b882a1
 # ╟─f0fa9a13-b01b-4402-80b3-92e3d2218989
 # ╟─34ff5bf7-014e-4185-8592-9305d3429e54
 # ╟─af10aa57-e2be-421e-9650-37be9c1f5aad
@@ -1645,6 +1928,11 @@ version = "5.8.0+1"
 # ╠═5581a801-213b-4266-98f2-ff515a731a75
 # ╟─71cd8cac-d124-403b-836a-8c7ab1633e61
 # ╠═2f1afcf8-5827-4fb8-aef1-df2c6cc85a81
+# ╟─75a14cd5-6679-4ff4-a834-3089d32d270d
+# ╠═86190ddd-b8bd-43c2-b30d-b33a51575768
+# ╟─d340807a-8f17-4e70-864f-b967745d5d5e
+# ╠═fed0a921-d8ca-4208-91e8-4f4c6c3eb7d6
+# ╠═66e9296b-77ba-417e-ac08-06c668af9472
 # ╟─63046959-e63c-425e-bc9e-487dcf2f9639
 # ╠═caf8a733-ad05-489f-b5a9-223b5cccc321
 # ╟─918e2fb0-a521-4c14-9b07-b6db8adda03f
