@@ -46,11 +46,14 @@ The following strategy has given me the best result so far:
 6. Finally repeat step 4 again to combine data from all chunks
 7. Format according to challenge specifications and print output
 
-## Results
+## Result (Ryzen 9 5900X, 32 GB RAM, NVMe SSD)
 
 ```julia
-julia> include("execute_df_v11.jl")
+julia> Threads.nthreads()
+12
 
+julia> include("execute_df_v11.jl")
+< printed output is omitted for clarity >
 Range (min … max):  89.459 s … 94.728 s  ┊ GC (min … max): 10.08% … 10.85%
  Time  (median):     90.178 s             ┊ GC (median):    10.54%
  Time  (mean ± σ):   90.765 s ±  1.567 s  ┊ GC (mean ± σ):  10.41% ±  0.41%
