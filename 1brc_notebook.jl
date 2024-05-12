@@ -5,7 +5,7 @@ using Markdown
 using InteractiveUtils
 
 # ╔═╡ be669e6e-cc33-46f4-b7f0-93fdf9ec217a
-using Statistics, ThreadsX, CSV, DataFrames, BenchmarkTools, ProgressMeter
+using Statistics, ThreadsX, CSV, DataFrames, BenchmarkTools, ProgressMeter, DelimitedFiles, Mmap
 
 # ╔═╡ 91c47eca-ffc5-11ee-2558-b3f40cc93e49
 md"
@@ -300,7 +300,7 @@ function groupby_df(chunk)
 	df_chunk = chunk |> DataFrame
 
 	# Group stations from each chunk		
-	df_group = combine(groupby(df_chunk, :station, sort = true),
+	df_group = combine(groupby(df_chunk, :station, sort = false),
 						   :temp => minimum,
 						   :temp => mean,
 						   :temp => maximum
@@ -354,20 +354,13 @@ function get_stations_df_v9(fname::String, num_chunks::Int)
 		                pool = true
 	                    )
 
-	# This will likely cause memory issues when loading the full dataset
+	# This does not seem to cause memory issues when loading the full dataset
 	chunks_file = collect(chunks)
-	p = Progress(length(chunks_file); dt = 0.5, 
-	                                  barglyphs = BarGlyphs("[=> ]"),
-	                                  barlen = 50,
-	                                  color = :yellow)
-	
+		
 	# Execute in parallel on all available threads
 	Threads.@threads for i in eachindex(chunks_file)
 	    df_all[i] = groupby_df(chunks_file[i])
-		next!(p)
 	end
-
-	finish!(p)
 
 	# Concatenate into a single DataFrame
 	df_all_group = vcat(df_all...)
@@ -404,11 +397,212 @@ end
 # 196.962096 seconds (1.00 G allocations: 72.806 GiB, 12.08% gc time, 0.00% compilation time) (threads = 1)
 
 # ╔═╡ 03e90404-7e3f-458a-a041-13ae08a7bb70
-@time B = ThreadsX.map(x -> chunk_to_file(x), chunks, basesize = 2)
+#@time B = map(x -> chunk_to_file(x), chunks)
+# 195.123235 seconds (1.00 G allocations: 72.806 GiB, 12.86% gc time)
+
+# ╔═╡ 17570002-ecc1-4de8-953e-c2f07a7598b2
+#@time B = collect(chunks);
+# 193.618945 seconds (1.00 G allocations: 72.806 GiB, 13.05% gc time)
 
 # ╔═╡ aa01fed9-309f-4129-9e25-9bbfb94323c4
-Base.summarysize(B)
+#Base.summarysize(B)
 # 8042500929
+
+# ╔═╡ 16545a7e-9f67-4d6e-92f4-c101b7e74c5a
+md"
+###### Using DelimitedFiles.jl
+"
+
+# ╔═╡ 2f649ddd-84ca-4c57-a16b-7baaf1871816
+function get_stations_dict_v4(fname::String)
+	
+	stations = Dict{String, Vector{Float32}}()
+
+	# Use memory mapping to read large file
+	fopen = open(fname, "r")
+	fmmap = Mmap.mmap(fopen)
+	
+	f_matrix = readdlm(fmmap,
+		               ';',
+		               AbstractString,
+		               '\n')
+	
+	for row in eachrow(f_matrix)		
+		station, temp = row[1], parse(Float32, row[2])
+		if station in keys(stations)
+			push!(stations[station], temp)
+		else
+			stations[station] = [temp]
+		end	
+	end
+
+	return stations
+end
+
+# ╔═╡ 6a2c0725-1a55-4cf4-a2b1-b13866f99980
+function get_stations_df_v10(fname::String, num_chunks::Int64)
+	
+	# Use memory mapping to read large file
+	fopen = open(fname, "r")
+	fmmap = Mmap.mmap(fopen)
+
+	# Find suitable range for reading into a matrix
+	i_max = length(fmmap)
+	chunk_size = round(Int, (i_max / num_chunks))
+	i_start = 1
+    i_end = chunk_size
+
+	df_all_group = DataFrame()
+
+	while i_end ≤ i_max
+		# Check if we end at byte representation of new-line character
+	    while fmmap[i_end] != 0x0a
+	    	i_end += 1
+	    end
+
+		f_matrix = readdlm(fmmap[i_start:i_end],
+		                   ';',
+		                   AbstractString,
+		                   '\n')
+
+		# Create DataFrame from matrix columns
+		df_chunk = DataFrame(station = f_matrix[:, 1],
+		                     temp = map(x -> parse(Float32, x), f_matrix[:, 2]))
+
+		# Group stations from each chunk		
+		df_group = combine(groupby(df_chunk, :station, sort = true),
+                               :temp => minimum,
+                               :temp => mean,
+                               :temp => maximum
+		                  )
+
+		# Vertically concatenate all DataFrames
+		df_all_group = vcat(df_all_group, df_group)
+
+		# Exit after processing last chunk
+		if i_end == i_max
+			break
+		end
+
+		# Move to next chunk
+		i_start = i_end + 1
+		i_end = i_start + chunk_size
+
+		if i_end > i_max
+			i_end = i_max
+		end
+
+	end
+
+	df_output = combine(groupby(df_all_group, :station, sort = true),
+                            :temp_minimum => minimum => :t_min,
+                            :temp_mean => mean => :t_mean,
+                            :temp_maximum => maximum => :t_max
+		               )
+
+	df_output[!, :t_mean] = map(x -> round(x; digits = 1), 
+		                        df_output[!, :t_mean])
+
+	return df_output
+	
+end
+
+# ╔═╡ 4243bb63-a2cb-43f3-b3eb-ee7e2bc990c0
+function get_stations_df_v11(fname::String, num_chunks::Int64, num_tasks::Int64)
+	
+	# Use memory mapping to read large file
+	fopen = open(fname, "r")
+	fmmap = Mmap.mmap(fopen)
+
+	# Find suitable range for reading into a matrix
+	i_max = length(fmmap)
+	chunk_size = round(Int, (i_max / num_chunks))
+	i_start = 1
+    i_end = chunk_size
+
+	df_all_group = DataFrame()
+
+	while i_end ≤ i_max
+		# Check if we end at byte representation of new-line character
+	    while fmmap[i_end] != 0x0a
+	    	i_end += 1
+	    end
+
+		df_chunk = CSV.read(fmmap[i_start:i_end], DataFrame;
+                            delim = ';',
+	                        header = ["station", "temp"],
+	                        types = Dict("temp" => Float32),
+	                        strict = true,
+	                        ntasks = num_tasks,
+		                    pool = true,
+			                buffer_in_memory = true
+	                        );
+
+		# Group stations from each chunk		
+		df_group = combine(groupby(df_chunk, :station, sort = true),
+                               :temp => minimum,
+                               :temp => mean,
+                               :temp => maximum
+		                  )
+
+		# Vertically concatenate all DataFrames
+		df_all_group = vcat(df_all_group, df_group)
+
+		# Exit after processing last chunk
+		if i_end == i_max
+			break
+		end
+
+		# Move to next chunk
+		i_start = i_end + 1
+		i_end = i_start + chunk_size
+
+		if i_end > i_max
+			i_end = i_max
+		end
+
+	end
+
+	df_output = combine(groupby(df_all_group, :station, sort = true),
+                            :temp_minimum => minimum => :t_min,
+                            :temp_mean => mean => :t_mean,
+                            :temp_maximum => maximum => :t_max
+		               )
+
+	df_output[!, :t_mean] = map(x -> round(x; digits = 1), 
+		                        df_output[!, :t_mean])
+
+	return df_output
+	
+end
+
+# ╔═╡ c7d8f4be-52b6-44a7-b7b2-95a7e84d912c
+fmmap = Mmap.mmap(open("measurements_test_100k.txt", "r"))
+
+# ╔═╡ 2d176457-58ce-421a-b394-54e6c5ec640a
+@time CSV.read(fmmap[1:1004], DataFrame;
+                         delim = ';',
+	                     header = ["station", "temp"],
+	                     types = Dict("temp" => Float32),
+	                     strict = true,
+	                     ntasks = 1,
+		                 pool = true
+	                     );
+
+# ╔═╡ 1d452bf4-869e-469e-8362-af7777ee9288
+@time CSV.File(fmmap[1:1004];
+                         delim = ';',
+	                     header = ["station", "temp"],
+	                     types = Dict("temp" => Float32),
+	                     strict = true,
+	                     ntasks = 1,
+		                 pool = true
+	                     ) |> DataFrame;
+
+# ╔═╡ 2b3403b1-8007-424d-85e3-d22c04df07ec
+#Base.summarysize(B)
+# 657922 --> Float32
+# 697922 --> Float64
 
 # ╔═╡ 62e31e63-5239-4ebb-a4c1-d3d25731a765
 #@btime get_stations_df_v7("measurements_test_10k.txt", 192);
@@ -472,12 +666,21 @@ Base.summarysize(B)
 # 43.791 ms (425358 allocations: 32.36 MiB) (threads = 2, chunks = 96)
 
 # ╔═╡ 06ba670e-c792-414d-b2bb-ca9dcec997be
-get_stations_df_v9("measurements_test_100k.txt", 96);
+#get_stations_df_v9("measurements_test_100k.txt", 96);
 # 31.901 ms (338701 allocations: 32.30 MiB) (threads = 6, chunks = 24)
 # 28.562 ms (381928 allocations: 26.69 MiB) (threads = 6, chunks = 48)
 # 32.837 ms (424494 allocations: 32.33 MiB) (threads = 6, chunks = 96)
 # 48.448 ms (424469 allocations: 32.32 MiB) (threads = 1, chunks = 96)
 # 41.469 ms (424474 allocations: 32.32 MiB) (threads = 2, chunks = 96)
+
+# ╔═╡ f0468935-c4a1-4290-b532-3c2d6fcb2b5f
+#@btime get_stations_df_v10("measurements_test_100k.txt", 8);
+# 49.653 ms (1473370 allocations: 46.90 MiB) (chunks = 2)
+# 76.127 ms (1626542 allocations: 56.22 MiB) (chunks = 8)
+
+# ╔═╡ d51ce869-0a20-4bcc-b65a-caa62c92e3f0
+#@btime get_stations_df_v11("measurements_test_100k.txt", 4, 1);
+# 28.147 ms (297983 allocations: 21.66 MiB)
 
 # ╔═╡ 90b29c2f-d43a-4ec7-82e2-74437f56e06d
 #@time get_stations_df_v5("measurements.txt", 192);
@@ -513,12 +716,53 @@ get_stations_df_v9("measurements_test_100k.txt", 96);
 # 184.213278 seconds (1.01 G allocations: 58.436 GiB, 18.58% gc time, 0.04% compilation time) (threads = 6, chunks = 384)
 # 189.941818 seconds (1.01 G allocations: 58.067 GiB, 16.45% gc time, 0.03% compilation time) (threads = 1, chunks = 192)
 # 199.398815 seconds (1.01 G allocations: 58.069 GiB, 20.17% gc time, 0.12% compilation time) (threads = 2, chunks = 192)
+# 220.237895 seconds (1.01 G allocations: 77.492 GiB, 17.42% gc time, 0.32% compilation time)
+# 184.235645 seconds (1.01 G allocations: 77.468 GiB, 12.75% gc time, 0.14% compilation time) (with Threads.@threads in for loop)
+
+# ╔═╡ 8bee7204-6d3b-4573-9ed5-72625b872bff
+#@time get_stations_df_v10("measurements.txt", 384);
+# 671.928196 seconds (13.90 G allocations: 425.558 GiB, 36.49% gc time) (chunks = 384)
+# 681.712966 seconds (13.89 G allocations: 415.999 GiB, 34.93% gc time) (chunks = 192)
+# 795.883014 seconds (13.89 G allocations: 413.485 GiB, 43.98% gc time, 0.02% compilation time) (chunks = 96)
+# 946.561126 seconds (13.89 G allocations: 412.823 GiB, 52.09% gc time, 0.02% compilation time) (chunks = 48)
+
+# ╔═╡ c813f9b3-c90c-451f-a1bd-e607dc969f70
+#@time get_stations_df_v11("measurements.txt", 24, 8);
+# 204.424300 seconds (2.25 G allocations: 137.110 GiB, 8.98% gc time, 0.19% compilation time) (chunks = 192, threads = 1)
+# 130.589368 seconds (1.03 G allocations: 102.088 GiB, 7.13% gc time, 0.59% compilation time) (chunks = 192, threads = 2)
+# 95.134890 seconds (1.04 G allocations: 101.885 GiB, 7.54% gc time) (chunks = 192, threads = 4)
+# 85.293235 seconds (1.05 G allocations: 100.073 GiB, 6.87% gc time) (chunks = 192, threads = 8)
+# 93.930154 seconds (1.07 G allocations: 110.774 GiB, 9.43% gc time) (chunks = 384, threads = 8)
+# 85.158766 seconds (1.03 G allocations: 96.453 GiB, 7.88% gc time) (chunks = 96, threads = 8)
+# 99.990584 seconds (1.08 G allocations: 99.656 GiB, 8.13% gc time) (chunks = 96, threads = 4)
+# 88.035218 seconds (1.06 G allocations: 95.662 GiB, 8.00% gc time) (chunks = 48, threads = 12)
+# 90.357964 seconds (1.02 G allocations: 98.247 GiB, 9.10% gc time) (chunks = 48, threads = 8)
+# 95.963246 seconds (1.12 G allocations: 98.188 GiB, 13.35% gc time) (chunks = 24, threads = 8)
 
 # ╔═╡ 3f290913-2779-4eb2-b019-48cae14c06ec
-192 * 4 * 2 * 2
+md"
+##### Run benchmarks
+"
 
 # ╔═╡ 457fbe9e-f0aa-477a-9b16-7888a5c30909
+b = @benchmarkable get_stations_df_v11("measurements.txt", 24, 24) samples = 10 seconds = 1200
 
+# ╔═╡ 17536c3e-cc38-47a3-bd27-972d9bb0729c
+run(b)
+
+
+
+#= chunks = 24, threads = 12 
+BenchmarkTools.Trial: 10 samples with 1 evaluation.
+ Range (min … max):  87.198 s … 91.595 s  ┊ GC (min … max):  9.96% … 10.63%
+ Time  (median):     90.255 s             ┊ GC (median):    10.88%
+ Time  (mean ± σ):   90.271 s ±  1.301 s  ┊ GC (mean ± σ):  10.62% ±  0.67%
+
+  ▁                             ▁   ▁  ▁ █           ▁ ▁ ▁▁  
+  █▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁█▁▁▁█▁▁█▁█▁▁▁▁▁▁▁▁▁▁▁█▁█▁██ ▁
+  87.2 s         Histogram: frequency by time        91.6 s <
+
+ Memory estimate: 92.03 GiB, allocs estimate: 1000676892.=#
 
 # ╔═╡ e75cd6d1-b02a-4101-9359-3d556e539ba2
 md"
@@ -526,7 +770,7 @@ md"
 "
 
 # ╔═╡ 94c4e745-8ed0-4a5d-a261-0f92d5a8be07
-@assert size(get_stations_df_v7("measurements_test_10k.txt", 4)) == size(get_stations_df_v8("measurements_test_10k.txt", 4)) "Output df sizes do not match"
+@assert size(get_stations_df_v7("measurements_test_10k.txt", 4)) == size(get_stations_df_v11("measurements_test_10k.txt", 4, 1)) "Output df sizes do not match"
 
 # ╔═╡ c875320f-8e07-4fb3-8a03-7eb3ba3cdcc8
 md"
@@ -536,7 +780,7 @@ md"
 # ╔═╡ c4b006ff-7d4e-4ed4-bdb3-6ac0c63d8b48
 function calculate_output_v1(stations_dict::Dict)
 
-	output = Dict{String, Vector{Float64}}()
+	output = Dict{String, Vector{Float32}}()
 	station_names = collect(keys(stations_dict))
 
 	for station in station_names
@@ -656,7 +900,7 @@ function execute_challenge_v1(fname::String)
 end
 
 # ╔═╡ 5581a801-213b-4266-98f2-ff515a731a75
-# @time execute_challenge_v1("measurements.txt")
+#@time execute_challenge_v1("measurements_test_100k.txt")
 # 349.618470 seconds (3.00 G allocations: 303.705 GiB, 7.32% gc time)
 # 371.050525 seconds (3.00 G allocations: 303.735 GiB, 6.65% gc time)
 
@@ -694,6 +938,26 @@ end
 # ╔═╡ e9d9c5f5-554a-4ea4-be6d-0bcdaae73cb0
 #@time execute_challenge_v3("measurements.txt")
 # > 800 seconds
+
+# ╔═╡ f5aa63c5-9a03-447e-b735-f845ffb95577
+md"
+###### Parsing via DelimitedFiles.jl
+"
+
+# ╔═╡ 97caa6de-8848-4f18-bd2f-2d873f95c202
+function execute_challenge_v1_2(fname::String)
+
+	get_stations_dict_v4(fname) |> calculate_output_v1 |> print_output_v1
+
+end
+
+# ╔═╡ d252ed7c-2f59-4662-b099-41d921b12eb3
+#@time execute_challenge_v1_2("measurements.txt")
+
+# ╔═╡ ab436367-552b-4342-a5da-c993d9b6d3b1
+md"
+###### Using DataFrames
+"
 
 # ╔═╡ ba23eb53-f6fd-4924-a7a0-f70fc981be33
 function execute_challenge_v4(fname::String, num_chunks::Int)
@@ -796,15 +1060,14 @@ end
 # ╔═╡ 091e28d3-c216-4178-845f-844da6a99e11
 Threads.nthreads()
 
-# ╔═╡ 728a5b9c-39df-4a53-bf09-7c780f6bde15
-(768 * 4)
-
 # ╔═╡ 00000000-0000-0000-0000-000000000001
 PLUTO_PROJECT_TOML_CONTENTS = """
 [deps]
 BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
 CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
 DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
+Mmap = "a63ad114-7e13-5084-954f-fe012c677804"
 ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
 Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 ThreadsX = "ac1d9e8a-700a-412c-b207-f0111f4b6c0d"
@@ -813,6 +1076,7 @@ ThreadsX = "ac1d9e8a-700a-412c-b207-f0111f4b6c0d"
 BenchmarkTools = "~1.4.0"
 CSV = "~0.10.12"
 DataFrames = "~1.6.1"
+DelimitedFiles = "~1.9.1"
 ProgressMeter = "~1.9.0"
 ThreadsX = "~0.1.12"
 """
@@ -823,7 +1087,7 @@ PLUTO_MANIFEST_TOML_CONTENTS = """
 
 julia_version = "1.10.2"
 manifest_format = "2.0"
-project_hash = "0ee0dc20ddb723768e27bb53a825ac2ea6cb7e06"
+project_hash = "dd543c849704ba2048a9d2cefe6002e846fe0de2"
 
 [[deps.Accessors]]
 deps = ["CompositionsBase", "ConstructionBase", "Dates", "InverseFunctions", "LinearAlgebra", "MacroTools", "Test"]
@@ -985,6 +1249,12 @@ uuid = "ade2ca70-3891-5945-98fb-dc099432e06a"
 git-tree-sha1 = "0fba8b706d0178b4dc7fd44a96a92382c9065c2c"
 uuid = "244e2a9f-e319-4986-a169-4d1fe445cd52"
 version = "0.1.2"
+
+[[deps.DelimitedFiles]]
+deps = ["Mmap"]
+git-tree-sha1 = "9e2f36d3c96a820c678f2f1f1782582fcf685bae"
+uuid = "8bb1440f-4735-579b-a4ab-409b98df4dab"
+version = "1.9.1"
 
 [[deps.Distributed]]
 deps = ["Random", "Serialization", "Sockets"]
@@ -1324,7 +1594,16 @@ version = "5.8.0+1"
 # ╠═fab88fa3-5211-44b5-8eff-203335123841
 # ╠═fe275494-b2bf-4f43-8346-53d283ea01b6
 # ╠═03e90404-7e3f-458a-a041-13ae08a7bb70
+# ╠═17570002-ecc1-4de8-953e-c2f07a7598b2
 # ╠═aa01fed9-309f-4129-9e25-9bbfb94323c4
+# ╟─16545a7e-9f67-4d6e-92f4-c101b7e74c5a
+# ╟─2f649ddd-84ca-4c57-a16b-7baaf1871816
+# ╟─6a2c0725-1a55-4cf4-a2b1-b13866f99980
+# ╟─4243bb63-a2cb-43f3-b3eb-ee7e2bc990c0
+# ╠═c7d8f4be-52b6-44a7-b7b2-95a7e84d912c
+# ╠═2d176457-58ce-421a-b394-54e6c5ec640a
+# ╠═1d452bf4-869e-469e-8362-af7777ee9288
+# ╠═2b3403b1-8007-424d-85e3-d22c04df07ec
 # ╠═62e31e63-5239-4ebb-a4c1-d3d25731a765
 # ╠═b52e7336-5cbc-43a2-b6b7-f253bb4eb85c
 # ╠═b87395ee-6c9a-4b68-b17a-5e06cd13b4c3
@@ -1339,13 +1618,18 @@ version = "5.8.0+1"
 # ╠═cc624265-270a-4a4d-ac31-354d0ccb333f
 # ╠═8a47b260-6bb0-46f1-a0be-93b07b398958
 # ╠═06ba670e-c792-414d-b2bb-ca9dcec997be
+# ╠═f0468935-c4a1-4290-b532-3c2d6fcb2b5f
+# ╠═d51ce869-0a20-4bcc-b65a-caa62c92e3f0
 # ╠═90b29c2f-d43a-4ec7-82e2-74437f56e06d
 # ╠═8c5bb36e-64b5-40dd-821a-b84ecf427c42
 # ╠═f19784e9-2b50-4722-a642-25254e864f57
 # ╠═a645592e-e9f1-4b27-9d36-351c6d6ae3f5
 # ╠═7b87fec1-5125-4dd7-8b08-9d885c7a6316
-# ╠═3f290913-2779-4eb2-b019-48cae14c06ec
+# ╠═8bee7204-6d3b-4573-9ed5-72625b872bff
+# ╠═c813f9b3-c90c-451f-a1bd-e607dc969f70
+# ╟─3f290913-2779-4eb2-b019-48cae14c06ec
 # ╠═457fbe9e-f0aa-477a-9b16-7888a5c30909
+# ╠═17536c3e-cc38-47a3-bd27-972d9bb0729c
 # ╟─e75cd6d1-b02a-4101-9359-3d556e539ba2
 # ╠═94c4e745-8ed0-4a5d-a261-0f92d5a8be07
 # ╟─c875320f-8e07-4fb3-8a03-7eb3ba3cdcc8
@@ -1365,7 +1649,11 @@ version = "5.8.0+1"
 # ╠═caf8a733-ad05-489f-b5a9-223b5cccc321
 # ╟─918e2fb0-a521-4c14-9b07-b6db8adda03f
 # ╠═e9d9c5f5-554a-4ea4-be6d-0bcdaae73cb0
-# ╠═ba23eb53-f6fd-4924-a7a0-f70fc981be33
+# ╟─f5aa63c5-9a03-447e-b735-f845ffb95577
+# ╟─97caa6de-8848-4f18-bd2f-2d873f95c202
+# ╠═d252ed7c-2f59-4662-b099-41d921b12eb3
+# ╟─ab436367-552b-4342-a5da-c993d9b6d3b1
+# ╟─ba23eb53-f6fd-4924-a7a0-f70fc981be33
 # ╟─059d50ae-1c56-429c-8b51-c8636be65c3e
 # ╠═2c924a23-a694-4ed3-b449-9cc55dc2b9b9
 # ╠═d2d7ba25-b41b-4675-ab30-6ff611f70276
@@ -1383,6 +1671,5 @@ version = "5.8.0+1"
 # ╟─15aee5e0-e783-4ad9-9e8f-5a1fd02dce53
 # ╠═e91246d1-4557-455b-a2e4-27ef50a85aab
 # ╠═091e28d3-c216-4178-845f-844da6a99e11
-# ╠═728a5b9c-39df-4a53-bf09-7c780f6bde15
 # ╟─00000000-0000-0000-0000-000000000001
 # ╟─00000000-0000-0000-0000-000000000002
