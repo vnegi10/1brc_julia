@@ -1,4 +1,4 @@
-using DataFrames, CSV, Mmap
+using DataFrames, CSV, Mmap, BenchmarkTools
 
 include("groupby_df.jl")
 include("print_output_v4.jl")
@@ -85,4 +85,8 @@ end
 # Execute main function, ARGS can be passed via the REPL as:
 # julia> ARGS = ["measurements.txt", "24"]
 # julia> include("execute_df_v11.jl")
-main(ARGS)
+# main(ARGS)
+
+# Run benchmark for 10 samples with a maximum duration of 20 minutes
+b = @benchmarkable main(ARGS) samples = 10 seconds = 1200
+run(b)
