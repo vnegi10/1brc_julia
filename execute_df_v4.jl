@@ -3,8 +3,8 @@ using DataFrames, CSV, ProgressMeter, Statistics
 include("print_output_v4.jl")
 
 function get_stations_df_v4(fname::String, num_chunks::Int)
-	
-	df_all_group = DataFrame()
+    
+    df_all_group = DataFrame()
 
     chunks = CSV.Chunks(fname;
                         delim = ';',
@@ -16,39 +16,39 @@ function get_stations_df_v4(fname::String, num_chunks::Int)
                         )
 
     p = Progress(length(chunks); dt = 0.5,
-	                             barglyphs = BarGlyphs("[=> ]"),
-	                             barlen = 50,
-	                             color = :yellow)
+                                 barglyphs = BarGlyphs("[=> ]"),
+                                 barlen = 50,
+                                 color = :yellow)
 
-	for chunk in chunks
+    for chunk in chunks
 
-		df_chunk = chunk |> DataFrame
+        df_chunk = chunk |> DataFrame
 
-		# Group stations from each chunk		
-		df_group = combine(groupby(df_chunk, :station, sort = true),
+        # Group stations from each chunk
+        df_group = combine(groupby(df_chunk, :station, sort = true),
                                :temp => minimum,
                                :temp => mean,
                                :temp => maximum
-		                  )
+                          )
 
-		# Vertically concatenate all DataFrames
-		df_all_group = vcat(df_all_group, df_group)
+        # Vertically concatenate all DataFrames
+        df_all_group = vcat(df_all_group, df_group)
         next!(p)
-		
-	end
+        
+    end
 
     finish!(p)
 
-	df_output = combine(groupby(df_all_group, :station, sort = true),
+    df_output = combine(groupby(df_all_group, :station, sort = true),
                             :temp_minimum => minimum => :t_min,
                             :temp_mean => mean => :t_mean,
                             :temp_maximum => maximum => :t_max
-		               )
+                       )
 
-	df_output[!, :t_mean] = map(x -> round(x; digits = 1), 
-		                        df_output[!, :t_mean])
+    df_output[!, :t_mean] = map(x -> round(x; digits = 1), 
+                                df_output[!, :t_mean])
 
-	return df_output
+    return df_output
 end
 
 function main(ARGS)
@@ -60,4 +60,7 @@ function main(ARGS)
 
 end
 
+# Execute main function, ARGS can be passed via the REPL as:
+# julia> ARGS = ["measurements.txt", "96"]
+# julia> include("execute_df_v4.jl")
 main(ARGS)
