@@ -9,11 +9,12 @@ performance in Julia can be much better than what I have been able to achieve.
 
 ## How to run?
 
-- Dependencies can be installed using the `Project.toml` file
+- Dependencies can be installed using the `Project.toml` file. Execute the following
+code in the Julia REPL from the root of this repository.
 
 ```julia
 using Pkg
-Pkg.activate()
+Pkg.activate(pwd())
 ```
 
 - Input file `measurements.txt` is not added here due to its large size. You can generate
