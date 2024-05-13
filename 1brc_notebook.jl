@@ -226,6 +226,41 @@ function process_chunk_v2(chunk)
 	return stations
 end
 
+# ╔═╡ 41ca7d1f-faaa-45be-b3b6-c07a8c9fe6a9
+function process_chunk_v3(chunk)
+	stations = Dict{String, Vector{Float32}}()
+	io_stream = IOBuffer(chunk)
+	
+	# Use of eachline requires Julia 1.8	
+	for line in eachline(io_stream)
+		pos = findfirst(';', line)
+		station = @view(line[1:prevind(line, pos)])
+		temp = parse(Float32, @view(line[pos+1:end]))
+		if haskey(stations, station)
+			# Find min and max
+			if temp ≤ stations[station][1]
+				# Replace when a new minimum is found
+				stations[station][1] = temp
+			else
+				# Replace when a new maximum is found
+				if temp ≥ stations[station][3]
+					stations[station][3] = temp
+				end
+			end		
+
+			# Mean
+			stations[station][2] += temp
+			stations[station][4] += 1.0			
+			
+		else
+			# min, sum, max, counter
+			stations[station] = [temp, temp, temp, 1.0]
+		end	
+	end
+
+	return stations
+end
+
 # ╔═╡ 80e62ba5-98b1-4d24-87ae-c032268b215f
 function combine_chunks_v1(all_stations)
 
@@ -330,8 +365,24 @@ function get_stations_dict_v5(fname::String, num_chunks::Int64)
 	return combine_chunks_v2(all_stations)
 end
 
+# ╔═╡ cb138738-c5d5-42c0-8b06-cff72d8765be
+function get_stations_dict_v6(fname::String, num_chunks::Int64)
+
+	all_chunks = get_chunks(fname, num_chunks)	
+	all_stations = [Dict{String, Vector{Float32}}() for _ in 1:num_chunks]
+
+	Threads.@threads for i in eachindex(all_chunks)		
+		all_stations[i] = process_chunk_v3(all_chunks[i])
+	end
+
+	return combine_chunks_v2(all_stations)
+end
+
 # ╔═╡ 5824ee19-f87e-4150-b166-4c54c5089cf4
 get_stations_dict_v5("measurements_test_100k.txt", 12)
+
+# ╔═╡ 2271a405-1c5a-455b-bb2c-28a1938788c7
+get_stations_dict_v6("measurements_test_100k.txt", 12)
 
 # ╔═╡ 2497157a-b02e-4ad6-8795-598adc28ddb5
 function get_stations_df_v4(fname::String, num_chunks::Int)
@@ -1179,7 +1230,20 @@ end
 #@time execute_challenge_v1_3("measurements.txt", 192)
 # 143.828589 seconds (4.00 G allocations: 410.822 GiB, 50.84% gc time) for chunks = 96
 # 139.639194 seconds (4.01 G allocations: 411.130 GiB, 48.85% gc time) for chunks = 192
-# 168.320329 seconds (4.01 G allocations: 411.130 GiB, 35.61% gc time) for chunks = 96 and threads = 6
+# 168.320329 seconds (4.01 G allocations: 411.130 GiB, 35.61% gc time) for chunks = 192 and threads = 6
+
+# ╔═╡ 249280a0-9872-4432-a460-f0873f09097e
+function execute_challenge_v1_4(fname::String, num_chunks::Int64)
+
+	get_stations_dict_v6(fname, num_chunks) |> print_output_v1
+
+end
+
+# ╔═╡ ee56217a-6106-4958-9fd2-715b6dbd55ce
+#@time execute_challenge_v1_4("measurements.txt", 384)
+# 71.638587 seconds (2.01 G allocations: 157.810 GiB, 36.96% gc time) for chunks = 192, threads = 12 
+# 72.434265 seconds (2.01 G allocations: 158.232 GiB, 36.41% gc time) for chunks = 384, threads = 12
+# 67.515749 seconds (2.01 G allocations: 158.232 GiB, 39.77% gc time) for chunks = 384, threads = 24
 
 # ╔═╡ 66e9296b-77ba-417e-ac08-06c668af9472
 #= Sample output
@@ -1856,12 +1920,15 @@ version = "5.8.0+1"
 # ╟─4a87591f-52fb-47da-a18e-1364aa654b8e
 # ╟─937393a0-b653-4fb0-b65b-02810225fbf0
 # ╟─2b4b1cb3-8b44-4963-813e-ca59b84cbccc
+# ╟─41ca7d1f-faaa-45be-b3b6-c07a8c9fe6a9
 # ╟─80e62ba5-98b1-4d24-87ae-c032268b215f
 # ╟─3f966611-e845-4817-bee5-e0a07a66b68f
 # ╟─cd1b6b31-c014-4a7d-802e-27239624bbca
 # ╟─00cb2ca7-b4e4-43a1-9f4d-df5e7e3e5fb8
+# ╟─cb138738-c5d5-42c0-8b06-cff72d8765be
 # ╠═7d51ac85-b660-4b1c-a914-973bd2b6b9f5
 # ╠═5824ee19-f87e-4150-b166-4c54c5089cf4
+# ╠═2271a405-1c5a-455b-bb2c-28a1938788c7
 # ╠═e1fc609f-5dc8-4cee-b0bf-48bb82d2d5b5
 # ╟─2497157a-b02e-4ad6-8795-598adc28ddb5
 # ╟─be339d68-fc78-4d2a-a5e0-628305f55a75
@@ -1932,6 +1999,8 @@ version = "5.8.0+1"
 # ╠═86190ddd-b8bd-43c2-b30d-b33a51575768
 # ╟─d340807a-8f17-4e70-864f-b967745d5d5e
 # ╠═fed0a921-d8ca-4208-91e8-4f4c6c3eb7d6
+# ╟─249280a0-9872-4432-a460-f0873f09097e
+# ╠═ee56217a-6106-4958-9fd2-715b6dbd55ce
 # ╠═66e9296b-77ba-417e-ac08-06c668af9472
 # ╟─63046959-e63c-425e-bc9e-487dcf2f9639
 # ╠═caf8a733-ad05-489f-b5a9-223b5cccc321
