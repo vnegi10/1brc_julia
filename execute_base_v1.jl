@@ -1,5 +1,7 @@
 using Statistics
 
+include("print_output.jl")
+
 function get_stations_dict_v1(fname::String)
     
     stations = Dict{String, Vector{Float64}}()
@@ -31,23 +33,6 @@ function calculate_output_v1(stations_dict::Dict)
     end
 
     return output
-
-end
-
-function print_output_v1(output_dict::Dict)
-    
-    print("{")
-    station_names = collect(keys(output_dict)) |> sort
-
-    # Output style: Abha=5.0/18.0/27.4
-    for station in station_names
-        temps = output_dict[station]
-        print("$(station)=$(temps[1])/$(temps[2])/$(temps[3]), ")
-    end
-
-    print("}")
-
-    return nothing
 
 end
 
