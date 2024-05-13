@@ -1,4 +1,4 @@
-using Mmap
+using Mmap, Statistics
 
 function get_chunks(fname::String, num_chunks::Int64)
     
@@ -67,7 +67,7 @@ function process_chunk_v1(chunk)
             push!(stations[station], temp)
         else
             stations[station] = [temp]
-        end    
+        end
     end
 
     return stations
