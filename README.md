@@ -47,12 +47,32 @@ The following strategy has given me the best result so far:
 6. Finally repeat step 4 again to combine data from all chunks
 7. Format according to challenge specifications and print output
 
-## Result (Ryzen 9 5900X, 32 GB RAM, NVMe SSD)
+## Benchmark system (Ryzen 9 5900X, 32 GB RAM, NVMe SSD)
 
 ```julia
-julia> Threads.nthreads()
-12
+julia> versioninfo()
+Julia Version 1.10.2
+Commit bd47eca2c8a (2024-03-01 10:14 UTC)
+Build Info:
+  Official https://julialang.org/ release
+Platform Info:
+  OS: Linux (x86_64-linux-gnu)
+  CPU: 24 × AMD Ryzen 9 5900X 12-Core Processor
+  WORD_SIZE: 64
+  LIBM: libopenlibm
+  LLVM: libLLVM-15.0.7 (ORCJIT, znver3)
+Threads: 12 default, 0 interactive, 6 GC (on 24 virtual cores)
+Environment:
+  JULIA_EDITOR = code
+  JULIA_NUM_THREADS = 12
+  JULIA_PKG_USE_CLI_GIT = true
+```
 
+## Best results
+
+#### Using external dependencies (CSV.jl, DataFrames.jl)
+
+```julia
 julia> include("execute_df_v11.jl")
 < printed output is omitted for clarity >
 Range (min … max):  89.459 s … 94.728 s  ┊ GC (min … max): 10.08% … 10.85%
@@ -64,4 +84,20 @@ Range (min … max):  89.459 s … 94.728 s  ┊ GC (min … max): 10.08% … 10
   89.5 s         Histogram: frequency by time        94.7 s <
 
  Memory estimate: 92.03 GiB, allocs estimate: 1000828591.
+```
+
+#### Using only base Julia
+
+```julia
+julia> include("execute_base_v1_4.jl")
+< printed output is omitted for clarity >
+Range (min … max):  71.958 s …   74.295 s  ┊ GC (min … max): 39.73% … 38.84%
+ Time  (median):     72.886 s               ┊ GC (median):    39.44%
+ Time  (mean ± σ):   72.889 s ± 705.485 ms  ┊ GC (mean ± σ):  39.44% ±  0.31%
+
+  ▁    ▁     ▁   ▁      ▁ █▁                   ▁            ▁  
+  █▁▁▁▁█▁▁▁▁▁█▁▁▁█▁▁▁▁▁▁█▁██▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁█▁▁▁▁▁▁▁▁▁▁▁▁█ ▁
+  72 s            Histogram: frequency by time         74.3 s <
+
+ Memory estimate: 157.38 GiB, allocs estimate: 2010613120.
 ```
