@@ -104,6 +104,8 @@ Range (min … max):  71.958 s …   74.295 s  ┊ GC (min … max): 39.73% … 
 ```
 
 ```julia
+julia> Threads.nthreads()
+12
 julia> ARGS = ["measurements.txt", "24"]
 julia> include("execute_base_v1_5.jl")
 < printed output is omitted for clarity >
@@ -116,4 +118,21 @@ julia> include("execute_base_v1_5.jl")
   64.6 s          Histogram: frequency by time         66.2 s <
 
  Memory estimate: 156.46 GiB, allocs estimate: 2000885392.
+```
+
+```julia
+julia> Threads.nthreads()
+24
+julia> ARGS = ["measurements.txt", "24"]
+julia> include("execute_base_v1_5.jl")
+< printed output is omitted for clarity >
+Range (min … max):  59.267 s …   61.046 s  ┊ GC (min … max): 39.95% … 38.96%
+ Time  (median):     60.404 s               ┊ GC (median):    39.65%
+ Time  (mean ± σ):   60.364 s ± 553.757 ms  ┊ GC (mean ± σ):  39.85% ±  0.66%
+
+  ▁                    ▁    ▁  ▁      ▁  █              ▁   █  
+  █▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁█▁▁▁▁█▁▁█▁▁▁▁▁▁█▁▁█▁▁▁▁▁▁▁▁▁▁▁▁▁▁█▁▁▁█ ▁
+  59.3 s          Histogram: frequency by time           61 s <
+
+ Memory estimate: 156.46 GiB, allocs estimate: 2000885452.
 ```
