@@ -140,6 +140,31 @@ function process_chunk_v3(chunk)
     return stations
 end
 
+function process_chunk_v4(chunk)
+    stations = Dict{String, Vector{Float32}}()
+    io_stream = IOBuffer(chunk)
+    
+    # Use of eachline requires Julia 1.8
+    while !eof(io_stream)
+        line = readline(io_stream)
+        pos = findfirst(';', line)
+        station = @view(line[1:prevind(line, pos)])
+        temp = parse(Float32, @view(line[pos+1:end]))
+        if haskey(stations, station)
+            stations[station][1] = min(temp, stations[station][1])
+            # Mean = Total temp / Number of times a match is found
+            stations[station][2] += temp
+            stations[station][3] = max(temp, stations[station][3])
+            stations[station][4] += 1.0
+        else
+            # min, sum, max, counter
+            stations[station] = [temp, temp, temp, 1.0]
+        end
+    end
+
+    return stations
+end
+
 function combine_chunks_v1(all_stations)
 
     list_stations = Vector{Vector{String}}()
