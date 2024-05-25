@@ -89,6 +89,7 @@ Range (min … max):  89.459 s … 94.728 s  ┊ GC (min … max): 10.08% … 10
 #### Using only base Julia
 
 ```julia
+julia> ARGS = ["measurements.txt", "384"]
 julia> include("execute_base_v1_4.jl")
 < printed output is omitted for clarity >
 Range (min … max):  71.958 s …   74.295 s  ┊ GC (min … max): 39.73% … 38.84%
@@ -100,4 +101,19 @@ Range (min … max):  71.958 s …   74.295 s  ┊ GC (min … max): 39.73% … 
   72 s            Histogram: frequency by time         74.3 s <
 
  Memory estimate: 157.38 GiB, allocs estimate: 2010613120.
+```
+
+```julia
+julia> ARGS = ["measurements.txt", "24"]
+julia> include("execute_base_v1_5.jl")
+< printed output is omitted for clarity >
+ Range (min … max):  64.612 s …   66.248 s  ┊ GC (min … max): 35.02% … 34.99%
+ Time  (median):     65.529 s               ┊ GC (median):    34.63%
+ Time  (mean ± σ):   65.438 s ± 604.725 ms  ┊ GC (mean ± σ):  34.81% ±  0.41%
+
+  █            █                 ▁   ▁      ▁    ▁      ▁   ▁  
+  █▁▁▁▁▁▁▁▁▁▁▁▁█▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁█▁▁▁█▁▁▁▁▁▁█▁▁▁▁█▁▁▁▁▁▁█▁▁▁█ ▁
+  64.6 s          Histogram: frequency by time         66.2 s <
+
+ Memory estimate: 156.46 GiB, allocs estimate: 2000885392.
 ```
