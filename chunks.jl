@@ -91,7 +91,7 @@ function process_chunk_v2(chunk)
                 if temp ≥ stations[station][3]
                     stations[station][3] = temp
                 end
-            end        
+            end
 
             # Mean
             stations[station][2] += temp
