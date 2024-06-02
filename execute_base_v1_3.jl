@@ -12,6 +12,8 @@ function get_stations_dict_v5(fname::String, num_chunks::Int64)
         all_stations[i] = process_chunk_v2(all_chunks[i])
     end
 
+    all_chunks = nothing
+
     return combine_chunks_v2(all_stations)
 end
 
@@ -30,5 +32,5 @@ end
 # main(ARGS)
 
 # Run benchmark for 10 samples with a maximum duration of 20 minutes
-b = @benchmarkable main(ARGS) samples = 10 seconds = 1200
+b = @benchmarkable main(ARGS) samples = 10 seconds = 1200 gcsample = true
 run(b)
