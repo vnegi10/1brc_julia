@@ -213,8 +213,7 @@ function combine_chunks_v2(all_stations)
     end
 
     # Concatenate into a single vector and remove duplicates
-    list_stations = vcat(list_stations...)
-    list_stations = unique(list_stations)
+    list_stations = vcat(list_stations...) |> unique
 
     combined_stations = Dict{String, Vector{Float32}}()
 

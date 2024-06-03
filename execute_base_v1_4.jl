@@ -9,7 +9,7 @@ function get_stations_dict_v6(fname::String, num_chunks::Int64)
     all_stations = [Dict{String, Vector{Float32}}() for _ in 1:num_chunks]
 
     Threads.@threads for i in eachindex(all_chunks)
-        all_stations[i] = process_chunk_v3(all_chunks[i])
+        @inbounds all_stations[i] = process_chunk_v3(all_chunks[i])
     end
 
     all_chunks = nothing
