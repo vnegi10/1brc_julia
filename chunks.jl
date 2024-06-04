@@ -13,8 +13,7 @@ function get_chunks(fname::String, num_chunks::Int64)
     i_end = chunk_size
 
     all_start, all_end = [Int64[] for i = 1:2]
-    all_chunks = Vector{UInt8}[]
-
+    
     # Find indexes for start and end of each chunk
     while i_end ≤ i_max
 
@@ -45,8 +44,10 @@ function get_chunks(fname::String, num_chunks::Int64)
 
     @assert length(all_start) == length(all_end) "Length of index vectors doesn't match"
 
+    all_chunks = fill(Vector{UInt8}(undef, 1), length(all_start))
+
     for i in eachindex(all_start)
-        push!(all_chunks, fmmap[all_start[i]:all_end[i]])
+        all_chunks[i] = fmmap[all_start[i]:all_end[i]]
     end
 
     close(fopen)
