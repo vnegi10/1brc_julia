@@ -8,9 +8,16 @@ function get_stations_dict_v7(fname::String, num_chunks::Int64)
     all_chunks = get_chunks(fname, num_chunks)
     all_stations = [Dict{String, Vector{Float32}}() for _ in 1:num_chunks]
 
+    #t1 = time()
+
     Threads.@threads for i in eachindex(all_chunks)
-        all_stations[i] = process_chunk_v4(all_chunks[i])
+        @inbounds all_stations[i] = process_chunk_v4(all_chunks[i])
     end
+
+    #t2 = time()
+    #Δt = round(t2 - t1, digits = 2)
+    #@info("Time taken to process chunks: $(Δt) s")
+    #sleep(5)
 
     all_chunks = nothing
 
